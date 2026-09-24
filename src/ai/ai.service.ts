@@ -52,15 +52,27 @@ export class AiService {
     const embedding = await this.createEmbedding(content);
 
     await this.db.query(
-        `
+      `
         INSERT INTO documents (content, embedding)
         VALUES ($1, $2)
         `,
-        [content, JSON.stringify(embedding)]
+      [content, JSON.stringify(embedding)],
     );
 
     return {
-        message: 'Document added'
-    }
+      message: 'Document added',
+    };
+  }
+
+  async search(question: string) {
+    const embedding = await this.createEmbedding(question);
+    const result = await this.db.query(
+      `
+        SELECT id, content, embedding <=> $1 AS distance FROM documents ORDER BY embedding <=> $1 LIMIT 3
+        `,
+      [JSON.stringify(embedding)],
+    );
+
+    return result.rows;
   }
 }

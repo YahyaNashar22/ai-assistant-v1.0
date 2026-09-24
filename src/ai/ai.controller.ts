@@ -13,4 +13,9 @@ export class AiController {
   addDocument(@Body('content') content: string) {
     return this.aiService.addDocument(content);
   }
+
+  @Post('search')
+  search(@Body('question') question: string) {
+    return this.aiService.search(question);
+  }
 }
