@@ -1,0 +1,10 @@
+GET http://localhost:4000/ai/test
+
+###
+
+POST http://localhost:4000/ai/documents
+Content-Type: application/json
+
+{
+    "content": "Employees receive 20 paid vacation days every year."
+}
