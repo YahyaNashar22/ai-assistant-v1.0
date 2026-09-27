@@ -18,4 +18,9 @@ export class AiController {
   search(@Body('question') question: string) {
     return this.aiService.search(question);
   }
+
+  @Post('ask')
+  ask(@Body('question') question: string) {
+    return this.aiService.ask(question);
+  }
 }

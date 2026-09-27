@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG System</title>
+</head>
+<body>
+   <input id="question" placeholder="Ask something" />
+
+   <button onclick="ask()">Ask</button>
+
+   <pre id="answer"></pre>
+
+   <script>
+    async function ask() {
+        const question = document.getElementById("question").value;
+
+        const response = await fetch(
+            "http://localhost:4000/ai/ask",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    question
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        document.getElementById("answer").textContent = data.answer;
+    }
+   </script>
+</body>
+</html>

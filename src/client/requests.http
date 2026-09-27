@@ -17,3 +17,14 @@ Content-Type: application/json
 {
     "question": "How long do I have to get my money back?"
 }
+
+###
+
+POST http://localhost:4000/ai/ask
+Content-Type: application/json
+
+{
+    "question": "What's my name?"
+}
+
+###
