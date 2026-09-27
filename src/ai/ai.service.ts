@@ -1,18 +1,22 @@
 import { Injectable } from '@nestjs/common';
 
 import { Pool } from 'pg';
-import { GoogleGenAI } from '@google/genai';
+import {
+  ContentListUnion,
+  FunctionDeclaration,
+  GoogleGenAI,
+  Type,
+} from '@google/genai';
 import { ConfigService } from '@nestjs/config';
 
 import { z } from 'zod';
+import { TicketService } from '../ticket/ticket.service.js';
 
 const SupportAnswerSchema = z.object({
   answer: z.string(),
   confidence: z.enum(['low', 'medium', 'high']),
   needsHuman: z.boolean(),
 });
-
-type SupportAnswer = z.infer<typeof SupportAnswerSchema>;
 
 const supportAnswerJsonSchema = {
   type: 'object',
@@ -35,10 +39,32 @@ const supportAnswerJsonSchema = {
   additionalProperties: false,
 };
 
+const getTicketStatusFunction: FunctionDeclaration = {
+  name: 'get_ticket_status',
+
+  description:
+    'Get the current status of a support ticket using its ticket ID.',
+
+  parameters: {
+    type: Type.OBJECT,
+
+    properties: {
+      ticketId: {
+        type: Type.NUMBER,
+
+        description: 'The numeric ID of the support ticket.',
+      },
+    },
+
+    required: ['ticketId'],
+  },
+};
+
 @Injectable()
 export class AiService {
   private readonly db: Pool;
   private readonly ai: GoogleGenAI;
+  private readonly ticketService: TicketService;
 
   constructor(private readonly config: ConfigService) {
     this.db = new Pool({
@@ -186,5 +212,96 @@ export class AiService {
     }
 
     return chunks;
+  }
+
+  async ticketAssistant(question: string) {
+    // 1. Ask gemini
+    const response = await this.ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: question,
+      config: {
+        tools: [
+          {
+            functionDeclarations: [getTicketStatusFunction],
+          },
+        ],
+      },
+    });
+
+    // 2. did gemini request a function ?
+    const functionCall = response.functionCalls?.[0];
+
+    if (!functionCall) {
+      return {
+        answer: response.text,
+      };
+    }
+
+    // 3. execute requested function
+    let result: unknown;
+
+    switch (functionCall.name) {
+      case 'get_ticket_status': {
+        const ticketId = Number(functionCall.args?.ticketId);
+        result = this.ticketService.getStatus(ticketId);
+        break;
+      }
+      default:
+        throw new Error(`Unknown function: ${functionCall.name}`);
+    }
+
+    // 4.build conversation
+
+    const modelContent = response.candidates?.[0].content;
+
+    if (!modelContent) {
+      throw new Error('Gemini returned no model content');
+    }
+
+    const contents = [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: question,
+          },
+        ],
+      },
+
+      modelContent,
+
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: functionCall.name,
+
+              response: {
+                result,
+              },
+            },
+          },
+        ],
+      },
+    ];
+
+    // 5. give tool result back to gemini
+    const finalResponse = await this.ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents,
+      config: {
+        tools: [
+          {
+            functionDeclarations: [getTicketStatusFunction],
+          },
+        ],
+      },
+    });
+
+    // 6. final answer
+    return {
+      answer: finalResponse.text,
+    };
   }
 }

@@ -28,3 +28,9 @@ Content-Type: application/json
 }
 
 ###
+POST http://localhost:4000/ai/ticket-assistant
+Content-Type: application/json
+
+{
+    "question": "What is the status of ticket 123?"
+}

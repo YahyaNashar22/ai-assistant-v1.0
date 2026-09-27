@@ -3,7 +3,9 @@ import { AiService } from './ai.service.js';
 
 @Controller('ai')
 export class AiController {
-    constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+  ) {}
   @Get('test')
   test() {
     return this.aiService.testGemini();
@@ -22,5 +24,10 @@ export class AiController {
   @Post('ask')
   ask(@Body('question') question: string) {
     return this.aiService.ask(question);
+  }
+
+  @Post('ticket-assistant')
+  ticketAssistant(@Body('question') question: string) {
+    return this.aiService.ticketAssistant(question)
   }
 }
