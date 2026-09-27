@@ -1,12 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { Pool } from 'pg';
-import {
-  ContentListUnion,
-  FunctionDeclaration,
-  GoogleGenAI,
-  Type,
-} from '@google/genai';
+import { Content, FunctionDeclaration, GoogleGenAI, Type } from '@google/genai';
 import { ConfigService } from '@nestjs/config';
 
 import { z } from 'zod';
@@ -59,6 +54,10 @@ const getTicketStatusFunction: FunctionDeclaration = {
     required: ['ticketId'],
   },
 };
+
+const TicketArgsSchema = z.object({
+  ticketId: z.coerce.number().int().positive(),
+});
 
 @Injectable()
 export class AiService {
@@ -302,6 +301,155 @@ export class AiService {
     // 6. final answer
     return {
       answer: finalResponse.text,
+    };
+  }
+
+  async chat(question: string) {
+    const embedding = await this.createEmbedding(question);
+
+    const result = await this.db.query(
+      `
+       SELECT id, content, embedding <=> $1 AS distance
+       FROM documents
+       ORDER BY embedding <=> $1
+       LIMIT 3 
+        `,
+      [JSON.stringify(embedding)],
+    );
+
+    const relevantRows = result.rows.filter(
+      (row) => Number(row.distance) < 0.6,
+    );
+
+    const context = relevantRows.map((row) => row.content).join('\n\n');
+
+    const prompt = `
+        You are a customer support assistant.
+
+        You have two sources of information:
+
+        1. KNOWLEDGE BASE
+        Use the provided context for questions about
+        policies, documentation and company information.
+
+        2. TOOLS
+        Use available tools when the user asks about
+        live application data such as ticket status.
+
+        Do not invent information.
+
+        If neither the knowledge base nor the available
+        tools can answer the question, say that you
+        don't have enough information.
+
+        KNOWLEDGE BASE:
+
+        ${context || 'No relevant documents found.'}
+
+        USER QUESTION:
+
+        ${question}
+        `;
+
+    const response = await this.ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+
+      contents: prompt,
+
+      config: {
+        tools: [
+          {
+            functionDeclarations: [getTicketStatusFunction],
+          },
+        ],
+      },
+    });
+
+    const functionCall = response.functionCalls?.[0];
+
+    // PATH A
+    if (!functionCall) {
+      return {
+        answer: response.text,
+
+        sources: relevantRows.map((row) => ({
+          id: row.id,
+          content: row.content,
+          distance: row.distance,
+        })),
+      };
+    }
+
+    // PATH B
+    let toolResult: unknown;
+
+    switch (functionCall.name) {
+      case 'get_ticket_status': {
+        const args = TicketArgsSchema.parse(functionCall.args);
+
+        toolResult = this.ticketService.getStatus(args.ticketId);
+
+        break;
+      }
+
+      default:
+        throw new Error(`Unknown function: ${functionCall.name}`);
+    }
+
+    const modelContent = response.candidates?.[0].content;
+    if (!modelContent) {
+      throw new Error('Gemini returned no model content');
+    }
+    const contents: Content[] = [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: prompt,
+          },
+        ],
+      },
+
+      modelContent,
+
+      {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: functionCall.name,
+
+              response: {
+                result: toolResult,
+              },
+            },
+          },
+        ],
+      },
+    ];
+
+    const finalResponse = await this.ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+
+      contents,
+
+      config: {
+        tools: [
+          {
+            functionDeclarations: [getTicketStatusFunction],
+          },
+        ],
+      },
+    });
+
+    return {
+      answer: finalResponse.text,
+      tool: functionCall.name,
+      sources: relevantRows.map((row) => ({
+        id: row.id,
+        content: row.content,
+        distance: row.distance,
+      })),
     };
   }
 }

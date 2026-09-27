@@ -30,4 +30,9 @@ export class AiController {
   ticketAssistant(@Body('question') question: string) {
     return this.aiService.ticketAssistant(question)
   }
+
+  @Post('chat')
+  chat(@Body('question') question: string) {
+    return this.aiService.chat(question);
+  }
 }
